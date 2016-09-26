@@ -5,6 +5,10 @@ to suite your requirements. Then run the build.
 
     sudo ./build-image.sh
 
+    OR
+
+    vagrant up
+
 This will take a long time, so I suggest you start this running before you go
 to bed.
 

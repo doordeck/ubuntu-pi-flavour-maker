@@ -121,7 +121,7 @@ function apt_clean() {
 function ubuntu_minimal() {
     chroot $R apt-get -y install f2fs-tools software-properties-common
     if [ ! -f "${R}/tmp/.minimal" ]; then
-        chroot $R apt-get -y install ubuntu-minimal
+        chroot $R apt-get -y install ubuntu-minimal python-minimal
         touch "${R}/tmp/.minimal"
     fi
 }
@@ -287,6 +287,9 @@ auto eth0
 iface eth0 inet dhcp
 EOM
     fi
+
+    # Fix interface naming
+    ln -s /dev/null $R/etc/udev/rules.d/80-net-setup-link.rules
 }
 
 function configure_hardware() {

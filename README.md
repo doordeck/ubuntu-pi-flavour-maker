@@ -113,8 +113,13 @@ BitBucket.
   * [Sjoerd Simons](http://sjoerd.luon.net) - Made the initial Raspberry Pi 2 kernel patches for Debian Jessie.
   * [Sergio Conde](http://omxplayer.sconde.net/) - Maintains `omxplayer` for the Raspberry Pi.
   * [Spindle](https://github.com/RPi-Distro/spindle) - a tool to help spin distribution images
+  * [Michael Barnwell](https://github.com/mpbarnwell) - Added Vagrant tools for building on Mac
 
 ## Changes
+
+### 2016-09-26 - Added Vagrant support
+  * Added Vagrantfile to allow building on Mac
+  * Added python-minimal as a base package 
 
 ### 2016-04-14 - 16.04 Release Candidate for Raspberry Pi 2 and Raspberry Pi 3
 
