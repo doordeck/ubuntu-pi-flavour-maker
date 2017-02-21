@@ -2,23 +2,12 @@
 
 ########################################################################
 #
-# Copyright (C) 2015 Martin Wimpress <code@ubuntu-mate.org>
+# Copyright (C) 2015 - 2017 Martin Wimpress <code@ubuntu-mate.org>
 # Copyright (C) 2015 Rohith Madhavan <rohithmadhavan@gmail.com>
 # Copyright (C) 2015 Ryan Finnie <ryan@finnie.org>
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+# See the included LICENSE file.
+# 
 ########################################################################
 
 set -ex
@@ -62,14 +51,14 @@ function sync_to() {
     if [ ! -d "${TARGET}" ]; then
         mkdir -p "${TARGET}"
     fi
-    rsync -a --progress --delete ${R}/ ${TARGET}/
+    rsync -aHAXx --progress --delete ${R}/ ${TARGET}/
 }
 
 # Base debootstrap
 function bootstrap() {
     # Required tools
     apt-get -y install binfmt-support debootstrap f2fs-tools \
-    qemu-user-static rsync ubuntu-keyring wget whois
+    qemu-user-static rsync ubuntu-keyring whois
 
     # Use the same base system for all flavours.
     if [ ! -f "${R}/tmp/.bootstrap" ]; then
@@ -119,14 +108,16 @@ function apt_clean() {
 
 # Install Ubuntu minimal
 function ubuntu_minimal() {
-    chroot $R apt-get -y install f2fs-tools software-properties-common
     if [ ! -f "${R}/tmp/.minimal" ]; then
-        chroot $R apt-get -y install ubuntu-minimal python-minimal
+        chroot $R apt-get -y install ubuntu-minimal parted software-properties-common python-minimal
+        if [ "${FS}" == "f2fs" ]; then
+            chroot $R apt-get -y install f2fs-tools
+        fi
         touch "${R}/tmp/.minimal"
     fi
 }
 
-# Install Ubuntu minimal
+# Install Ubuntu standard
 function ubuntu_standard() {
     if [ "${FLAVOUR}" != "ubuntu-minimal" ] && [ ! -f "${R}/tmp/.standard" ]; then
         chroot $R apt-get -y install ubuntu-standard
@@ -169,15 +160,7 @@ function create_groups() {
     chroot $R groupadd -f --system spi
 
     # Create adduser hook
-    cat <<'EOM' >$R/usr/local/sbin/adduser.local
-#!/bin/sh
-# This script is executed as the final step when calling `adduser`
-# USAGE:
-#   adduser.local USER UID GID HOME
-
-# Add user to the Raspberry Pi specific groups
-usermod -a -G adm,gpio,i2c,input,spi,video $1
-EOM
+    cp files/adduser.local $R/usr/local/sbin/adduser.local
     chmod +x $R/usr/local/sbin/adduser.local
 }
 
@@ -221,33 +204,12 @@ function prepare_oem_config() {
 }
 
 function configure_ssh() {
-    chroot $R apt-get -y install openssh-server
-    cat > $R/etc/systemd/system/sshdgenkeys.service << EOF
-[Unit]
-Description=SSH key generation on first startup
-Before=ssh.service
-ConditionPathExists=|!/etc/ssh/ssh_host_key
-ConditionPathExists=|!/etc/ssh/ssh_host_key.pub
-ConditionPathExists=|!/etc/ssh/ssh_host_rsa_key
-ConditionPathExists=|!/etc/ssh/ssh_host_rsa_key.pub
-ConditionPathExists=|!/etc/ssh/ssh_host_dsa_key
-ConditionPathExists=|!/etc/ssh/ssh_host_dsa_key.pub
-ConditionPathExists=|!/etc/ssh/ssh_host_ecdsa_key
-ConditionPathExists=|!/etc/ssh/ssh_host_ecdsa_key.pub
-ConditionPathExists=|!/etc/ssh/ssh_host_ed25519_key
-ConditionPathExists=|!/etc/ssh/ssh_host_ed25519_key.pub
-
-[Service]
-ExecStart=/usr/bin/ssh-keygen -A
-Type=oneshot
-RemainAfterExit=yes
-
-[Install]
-WantedBy=ssh.service
-EOF
-
+    chroot $R apt-get -y install openssh-server sshguard
+    cp files/sshdgenkeys.service $R/lib/systemd/system/
     mkdir -p $R/etc/systemd/system/ssh.service.wants
-    chroot $R ln -s /etc/systemd/system/sshdgenkeys.service /etc/systemd/system/ssh.service.wants
+    chroot $R /bin/systemctl enable sshdgenkeys.service
+    chroot $R /bin/systemctl disable ssh.service
+    chroot $R /bin/systemctl disable sshguard.service
 }
 
 function configure_network() {
@@ -292,6 +254,50 @@ EOM
     ln -s /dev/null $R/etc/udev/rules.d/80-net-setup-link.rules
 }
 
+function disable_services() {
+    # Disable brltty because it spams syslog with SECCOMP errors
+    if [ -e $R/sbin/brltty ]; then
+        chroot $R /bin/systemctl disable brltty.service
+    fi
+
+    # Disable ntp because systemd-timesyncd will take care of this.
+    if [ -e $R/etc/init.d/ntp ]; then
+        chroot $R /bin/systemctl disable ntp
+        chmod -x $R/usr/sbin/ntpd
+        cp files/prefer-timesyncd.service $R/lib/systemd/system/
+        chroot $R /bin/systemctl enable prefer-timesyncd.service
+    fi
+
+    # Disable irqbalance because it is of little, if any, benefit on ARM.
+    if [ -e $R/etc/init.d/irqbalance ]; then
+        chroot $R /bin/systemctl disable irqbalance
+    fi
+
+    # Disable TLP because it is redundant on ARM devices.
+    if [ -e $R/etc/default/tlp ]; then
+        sed -i s'/TLP_ENABLE=1/TLP_ENABLE=0/' $R/etc/default/tlp
+        chroot $R /bin/systemctl disable tlp.service
+        chroot $R /bin/systemctl disable tlp-sleep.service
+    fi
+
+    # Disable apport because these images are not official
+    if [ -e $R/etc/default/apport ]; then
+        sed -i s'/enabled=1/enabled=0/' $R/etc/default/apport
+        chroot $R /bin/systemctl disable apport.service
+        chroot $R /bin/systemctl disable apport-forward.socket
+    fi
+
+    # Disable whoopsie because these images are not official
+    if [ -e $R/usr/bin/whoopsie ]; then
+        chroot $R /bin/systemctl disable whoopsie.service
+    fi
+
+    # Disable mate-optimus
+    if [ -e $R/usr/share/mate/autostart/mate-optimus.desktop ]; then
+        rm -f $R/usr/share/mate/autostart/mate-optimus.desktop || true
+    fi
+}
+
 function configure_hardware() {
     local FS="${1}"
     if [ "${FS}" != "ext4" ] && [ "${FS}" != 'f2fs' ]; then
@@ -299,24 +305,23 @@ function configure_hardware() {
         exit 1
     fi
 
-    chroot $R apt-get -y update
-
-    # gdebi-core used for installing copies-and-fills and omxplayer
-    chroot $R apt-get -y install gdebi-core
-    local COFI="http://archive.raspberrypi.org/debian/pool/main/r/raspi-copies-and-fills/raspi-copies-and-fills_0.5-1_armhf.deb"
-
     # Install the RPi PPA
     chroot $R apt-add-repository -y ppa:ubuntu-pi-flavour-makers/ppa
     chroot $R apt-get update
 
     # Firmware Kernel installation
     chroot $R apt-get -y install libraspberrypi-bin libraspberrypi-dev \
-    libraspberrypi-doc libraspberrypi0 raspberrypi-bootloader rpi-update
-    chroot $R apt-get -y install bluez-firmware linux-firmware pi-bluetooth
+    libraspberrypi-doc libraspberrypi0 raspberrypi-bootloader rpi-update \
+    bluez-firmware linux-firmware pi-bluetooth
 
-    # Raspberry Pi 3 WiFi firmware. Package this?
+    # Raspberry Pi 3 WiFi firmware. Supplements what is provided in linux-firmware
     cp -v firmware/* $R/lib/firmware/brcm/
     chown root:root $R/lib/firmware/brcm/*
+
+    # pi-top poweroff and brightness utilities
+    cp -v files/pi-top-* $R/usr/bin/
+    chown root:root $R/usr/bin/pi-top-*
+    chmod +x $R/usr/bin/pi-top-*
 
     if [ "${FLAVOUR}" != "ubuntu-minimal" ] && [ "${FLAVOUR}" != "ubuntu-standard" ]; then
         # Install fbturbo drivers on non composited desktop OS
@@ -326,10 +331,9 @@ function configure_hardware() {
         fi
 
         # omxplayer
-        local OMX="http://omxplayer.sconde.net/builds/omxplayer_0.3.7~git20160206~cb91001_armhf.deb"
         # - Requires: libpcre3 libfreetype6 fonts-freefont-ttf dbus libssl1.0.0 libsmbclient libssh-4
-        wget -c "${OMX}" -O $R/tmp/omxplayer.deb
-        chroot $R gdebi -n /tmp/omxplayer.deb
+        cp deb/omxplayer_0.3.7-git20160923-dfea8c9_armhf.deb $R/tmp/omxplayer.deb
+        chroot $R apt-get -y install /tmp/omxplayer.deb
 
         # Make Ubiquity "compatible" with the Raspberry Pi Foundation kernel.
         if [ ${OEM_CONFIG} -eq 1 ]; then
@@ -337,22 +341,39 @@ function configure_hardware() {
         fi
     fi
 
-    # Hardware - Create a fake HW clock and add rng-tools
-    chroot $R apt-get -y install fake-hwclock fbset i2c-tools rng-tools
-
     # Install Raspberry Pi system tweaks
-    chroot $R apt-get -y install raspberrypi-general-mods raspberrypi-sys-mods
+    chroot $R apt-get -y install fbset raspberrypi-sys-mods
 
-    # Disable TLP
-    if [ -f $R/etc/default/tlp ]; then
-        sed -i s'/TLP_ENABLE=1/TLP_ENABLE=0/' $R/etc/default/tlp
-    fi
+    # Enable hardware random number generator
+    chroot $R apt-get -y install rng-tools
 
     # copies-and-fills
     # Create /spindel_install so cofi doesn't segfault when chrooted via qemu-user-static
     touch $R/spindle_install
-    wget -c "${COFI}" -O $R/tmp/cofi.deb
-    chroot $R gdebi -n /tmp/cofi.deb
+    cp deb/raspi-copies-and-fills_0.5-1_armhf.deb $R/tmp/cofi.deb
+    chroot $R apt-get -y install /tmp/cofi.deb
+
+    # Add /root partition resize
+    if [ "${FS}" == "ext4" ]; then
+        CMDLINE_INIT="init=/usr/lib/raspi-config/init_resize.sh"
+        # Add the first boot filesystem resize, init_resize.sh is
+        # shipped in raspi-config.
+        cp files/resize2fs_once	$R/etc/init.d/
+        chroot $R /bin/systemctl enable resize2fs_once        
+    else
+        CMDLINE_INIT=""
+    fi
+    chroot $R apt-get -y install raspi-config
+
+    # Add /boot/config.txt
+    cp files/config.txt $R/boot/
+
+    # Add /boot/cmdline.txt
+    echo "dwc_otg.lpm_enable=0 console=serial0,115200 console=tty1 root=/dev/mmcblk0p2 rootfstype=${FS} elevator=deadline fsck.repair=yes rootwait quiet splash plymouth.ignore-serial-consoles ${CMDLINE_INIT}" > $R/boot/cmdline.txt
+    # Enable VC4 on composited desktops
+    if [ "${FLAVOUR}" == "kubuntu" ] || [ "${FLAVOUR}" == "ubuntu" ] || [ "${FLAVOUR}" == "ubuntu-gnome" ]; then
+        echo "dtoverlay=vc4-kms-v3d" >> $R/boot/config.txt
+    fi
 
     # Set up fstab
     cat <<EOM >$R/etc/fstab
@@ -360,49 +381,49 @@ proc            /proc           proc    defaults          0       0
 /dev/mmcblk0p2  /               ${FS}   defaults,noatime  0       1
 /dev/mmcblk0p1  /boot/          vfat    defaults          0       2
 EOM
-
-    # Set up firmware config
-    if [ "${FLAVOUR}" == "ubuntu-minimal" ] || [ "${FLAVOUR}" == "ubuntu-standard" ]; then
-        echo "net.ifnames=0 biosdevname=0 dwc_otg.lpm_enable=0 console=tty1 root=/dev/mmcblk0p2 rootfstype=${FS} elevator=deadline rootwait quiet splash" > $R/boot/cmdline.txt
-    else
-        echo "dwc_otg.lpm_enable=0 console=tty1 root=/dev/mmcblk0p2 rootfstype=${FS} elevator=deadline rootwait quiet splash" > $R/boot/cmdline.txt
-        sed -i 's/#framebuffer_depth=16/framebuffer_depth=32/' $R/boot/config.txt
-        #sed -i 's/#framebuffer_ignore_alpha=0/framebuffer_ignore_alpha=1/' $R/boot/config.txt
-        sed -i 's/#dtparam=audio=off/dtparam=audio=on/' $R/boot/config.txt
-
-        # Enable VC4 on composited desktops
-        if [ "${FLAVOUR}" == "kubuntu" ] || [ "${FLAVOUR}" == "ubuntu" ] || [ "${FLAVOUR}" == "ubuntu-gnome" ]; then
-            echo "dtoverlay=vc4-kms-v3d" > $R/boot/config.txt
-        fi
-    fi
-
-    # Save the clock
-    chroot $R fake-hwclock save
 }
 
 function install_software() {
-    local SCRATCH="http://archive.raspberrypi.org/debian/pool/main/s/scratch/scratch_1.4.20131203-2_all.deb"
-    local WIRINGPI="http://archive.raspberrypi.org/debian/pool/main/w/wiringpi/wiringpi_2.32_armhf.deb"
 
     if [ "${FLAVOUR}" != "ubuntu-minimal" ]; then
-        # Python
-        chroot $R apt-get -y install python-minimal python3-minimal
-        chroot $R apt-get -y install python-dev python3-dev
-        chroot $R apt-get -y install python-pip python3-pip
-        chroot $R apt-get -y install python-setuptools python3-setuptools
+        # FIXME - Replace with meta packages(s)
 
-        # Python extras a Raspberry Pi hacker expects to have available ;-)
-        chroot $R apt-get -y install raspi-gpio
-        chroot $R apt-get -y install python-rpi.gpio python3-rpi.gpio
-        chroot $R apt-get -y install python-serial python3-serial
-        chroot $R apt-get -y install python-spidev python3-spidev
-        chroot $R apt-get -y install python-picamera python3-picamera
-        chroot $R apt-get -y install python-rtimulib python3-rtimulib
-        chroot $R apt-get -y install python-sense-hat python3-sense-hat
-        chroot $R apt-get -y install python-astropi python3-astropi
-        chroot $R apt-get -y install python-pil python3-pil
-        chroot $R apt-get -y install python-gpiozero python3-gpiozero
-        chroot $R apt-get -y install python-pygame
+        # Python
+        chroot $R apt-get -y install \
+        python-minimal python3-minimal \
+        python-dev python3-dev \
+        python-pip python3-pip \
+        python-setuptools python3-setuptools
+
+        # Python extras a Raspberry Pi hacker expects to be available ;-)
+        chroot $R apt-get -y install \
+        raspi-gpio \
+        python-rpi.gpio python3-rpi.gpio \
+        python-gpiozero python3-gpiozero \
+        pigpio python-pigpio python3-pigpio \
+        python-serial python3-serial \
+        python-spidev python3-spidev \
+        python-smbus python3-smbus \
+        python-astropi python3-astropi \
+        python-drumhat python3-drumhat \
+        python-envirophat python3-envirophat \
+        python-pianohat python3-pianohat \
+        python-pantilthat python3-pantilthat \
+        python-scrollphat python3-scrollphat \
+        python-st7036 python3-st7036 \
+        python-sn3218 python3-sn3218 \
+        python-piglow python3-piglow \
+        python-microdotphat python3-microdotphat \
+        python-mote python3-mote \
+        python-motephat python3-motephat \
+        python-explorerhat python3-explorerhat \
+        python-rainbowhat python3-rainbowhat \
+        python-sense-hat python3-sense-hat \
+        python-sense-emu python3-sense-emu sense-emu-tools \
+        python-picamera python3-picamera \
+        python-rtimulib python3-rtimulib \
+        python-pygame
+
         chroot $R pip2 install codebug_tether
         chroot $R pip3 install codebug_tether
     fi
@@ -422,21 +443,20 @@ function install_software() {
         chroot $R apt-get -y install youtube-dlg
 
         # Scratch (nuscratch)
-        # - Requires: scratch wiringpi
-        wget -c "${WIRINGPI}" -O $R/tmp/wiringpi.deb
-        chroot $R gdebi -n /tmp/wiringpi.deb
-        wget -c "${SCRATCH}" -O $R/tmp/scratch.deb
-        chroot $R gdebi -n /tmp/scratch.deb
+        # - Requires: scratch and used to require wiringpi
+        cp deb/scratch_1.4.20131203-2_all.deb $R/tmp/wiringpi.deb
+        cp deb/wiringpi_2.32_armhf.deb $R/tmp/scratch.deb
+        chroot $R apt-get -y install /tmp/wiringpi.deb
+        chroot $R apt-get -y install /tmp/scratch.deb
         chroot $R apt-get -y install nuscratch
 
         # Minecraft
-        chroot $R apt-get -y install minecraft-pi python-picraft python3-picraft
+        chroot $R apt-get -y install minecraft-pi python-picraft python3-picraft --allow-downgrades
 
         # Sonic Pi
-        chroot $R apt-get -y install sonic-pi=2.9.0~repack-6
-
-        # raspi-config - Needs forking/modifying to support Ubuntu
-        # chroot $R apt-get -y install raspi-config
+        cp files/jackd.conf $R/tmp/
+        chroot $R debconf-set-selections -v /tmp/jackd.conf
+        chroot $R apt-get -y install sonic-pi
     fi
 }
 
@@ -468,15 +488,15 @@ function clean_up() {
     rm -f $R/boot/.firmware_revision || true
     rm -rf $R/boot.bak || true
     rm -rf $R/lib/modules.bak || true
-    # Old kernel modules
-    #rm -rf $R/lib/modules/4.1.19* || true
 
     # Potentially sensitive.
     rm -f $R/root/.bash_history
     rm -f $R/root/.ssh/known_hosts
 
     # Remove bogus home directory
-    rm -rf $R/home/${SUDO_USER} || true
+    if [ -d $R/home/${SUDO_USER} ]; then
+        rm -rf $R/home/${SUDO_USER} || true
+    fi
 
     # Machine-specific, so remove in case this system is going to be
     # cloned.  These will be regenerated on the first boot.
@@ -494,80 +514,101 @@ function clean_up() {
     rm -rf $R/tmp/.bootstrap || true
     rm -rf $R/tmp/.minimal || true
     rm -rf $R/tmp/.standard || true
+    rm -rf $R/spindle_install || true
 }
 
 function make_raspi2_image() {
     # Build the image file
     local FS="${1}"
-    local GB=${2}
+    local SIZE_IMG="${2}"
+    local SIZE_BOOT="64MiB"
 
     if [ "${FS}" != "ext4" ] && [ "${FS}" != 'f2fs' ]; then
         echo "ERROR! Unsupport filesystem requested. Exitting."
         exit 1
     fi
 
-    if [ ${GB} -ne 4 ] && [ ${GB} -ne 8 ] && [ ${GB} -ne 16 ]; then
-        echo "ERROR! Unsupport card image size requested. Exitting."
-        exit 1
-    fi
+    # Remove old images.
+    rm -f "${BASEDIR}/${IMAGE}" || true
 
-    if [ ${GB} -eq 4 ]; then
-        SEEK=3750
-        SIZE=7546880
-        SIZE_LIMIT=3685
-    elif [ ${GB} -eq 8 ]; then
-        SEEK=7680
-        SIZE=15728639
-        SIZE_LIMIT=7615
-    elif [ ${GB} -eq 16 ]; then
-        SEEK=15360
-        SIZE=31457278
-        SIZE_LIMIT=15230
-    fi
+    # Create an empty file file.
+    dd if=/dev/zero of="${BASEDIR}/${IMAGE}" bs=1MB count=1
+    dd if=/dev/zero of="${BASEDIR}/${IMAGE}" bs=1MB count=0 seek=$(( ${SIZE_IMG} * 1000 ))
 
-    # If a compress version exists, remove it.
-    rm -f "${BASEDIR}/${IMAGE}.bz2" || true
+    # Initialising: msdos
+    parted -s ${BASEDIR}/${IMAGE} mktable msdos
+    echo "Creating /boot partition"
+    parted -a optimal -s ${BASEDIR}/${IMAGE} mkpart primary fat32 1 "${SIZE_BOOT}"
+    echo "Creating /root partition"
+    parted -a optimal -s ${BASEDIR}/${IMAGE} mkpart primary ext4 "${SIZE_BOOT}" 100%
 
-    dd if=/dev/zero of="${BASEDIR}/${IMAGE}" bs=1M count=1
-    dd if=/dev/zero of="${BASEDIR}/${IMAGE}" bs=1M count=0 seek=${SEEK}
+    PARTED_OUT=$(parted -s ${BASEDIR}/${IMAGE} unit b print)
+    BOOT_OFFSET=$(echo "${PARTED_OUT}" | grep -e '^ 1'| xargs echo -n \
+    | cut -d" " -f 2 | tr -d B)
+    BOOT_LENGTH=$(echo "${PARTED_OUT}" | grep -e '^ 1'| xargs echo -n \
+    | cut -d" " -f 4 | tr -d B)
 
-    sfdisk -f "$BASEDIR/${IMAGE}" <<EOM
-unit: sectors
+    ROOT_OFFSET=$(echo "${PARTED_OUT}" | grep -e '^ 2'| xargs echo -n \
+    | cut -d" " -f 2 | tr -d B)
+    ROOT_LENGTH=$(echo "${PARTED_OUT}" | grep -e '^ 2'| xargs echo -n \
+    | cut -d" " -f 4 | tr -d B)
 
-1 : start=     2048, size=   131072, Id= c, bootable
-2 : start=   133120, size=  ${SIZE}, Id=83
-3 : start=        0, size=        0, Id= 0
-4 : start=        0, size=        0, Id= 0
-EOM
+    BOOT_LOOP=$(losetup --show -f -o ${BOOT_OFFSET} --sizelimit ${BOOT_LENGTH} ${BASEDIR}/${IMAGE})
+    ROOT_LOOP=$(losetup --show -f -o ${ROOT_OFFSET} --sizelimit ${ROOT_LENGTH} ${BASEDIR}/${IMAGE})
+    echo "/boot: offset ${BOOT_OFFSET}, length ${BOOT_LENGTH}"
+    echo "/:     offset ${ROOT_OFFSET}, length ${ROOT_LENGTH}"
 
-    BOOT_LOOP="$(losetup -o 1M --sizelimit 64M -f --show ${BASEDIR}/${IMAGE})"
-    ROOT_LOOP="$(losetup -o 65M --sizelimit ${SIZE_LIMIT}M -f --show ${BASEDIR}/${IMAGE})"
     mkfs.vfat -n PI_BOOT -S 512 -s 16 -v "${BOOT_LOOP}"
     if [ "${FS}" == "ext4" ]; then
-        mkfs.ext4 -L PI_ROOT -m 0 "${ROOT_LOOP}"
+        mkfs.ext4 -L PI_ROOT -m 0 -O ^huge_file "${ROOT_LOOP}"
     else
         mkfs.f2fs -l PI_ROOT -o 1 "${ROOT_LOOP}"
     fi
+
     MOUNTDIR="${BUILDDIR}/mount"
     mkdir -p "${MOUNTDIR}"
-    mount "${ROOT_LOOP}" "${MOUNTDIR}"
+    mount -v "${ROOT_LOOP}" "${MOUNTDIR}" -t "${FS}"
     mkdir -p "${MOUNTDIR}/boot"
-    mount "${BOOT_LOOP}" "${MOUNTDIR}/boot"
-    rsync -a --progress "$R/" "${MOUNTDIR}/"
+    mount -v "${BOOT_LOOP}" "${MOUNTDIR}/boot" -t vfat
+    rsync -aHAXx "$R/" "${MOUNTDIR}/"
+    sync
     umount -l "${MOUNTDIR}/boot"
     umount -l "${MOUNTDIR}"
-    fsck -y "${BOOT_LOOP}"
-    fsck -y "${ROOT_LOOP}"
-    tune2fs -c 0 -i 0 "${ROOT_LOOP}"
     losetup -d "${ROOT_LOOP}"
     losetup -d "${BOOT_LOOP}"
+}
+
+function make_hash() {
+    local FILE="${1}"
+    local HASH="sha256"
+    local KEY="FFEE1E5C"
+    if [ ! -f ${FILE}.${HASH}.sign ]; then
+        if [ -f ${FILE} ]; then
+            ${HASH}sum ${FILE} > ${FILE}.${HASH}
+            sed -i -r "s/ .*\/(.+)/  \1/g" ${FILE}.${HASH}
+            gpg --default-key ${KEY} --armor --output ${FILE}.${HASH}.sign --detach-sig ${FILE}.${HASH}
+        else
+            echo "WARNING! Didn't find ${FILE} to hash."
+        fi
+    else
+        echo "Existing signature found, skipping..."
+    fi
 }
 
 function make_tarball() {
     if [ ${MAKE_TARBALL} -eq 1 ]; then
         rm -f "${BASEDIR}/${TARBALL}" || true
         tar -cSf "${BASEDIR}/${TARBALL}" $R
+        make_hash "${BASEDIR}/${TARBALL}"
     fi
+}
+
+function compress_image() {
+    if [ ! -e "${BASEDIR}/${IMAGE}.xz" ]; then
+        echo "Compressing to: ${BASEDIR}/${IMAGE}.xz"
+        xz ${BASEDIR}/${IMAGE}
+    fi
+    make_hash "${BASEDIR}/${IMAGE}.xz"
 }
 
 function stage_01_base() {
@@ -590,9 +631,18 @@ function stage_02_desktop() {
 
     if [ "${FLAVOUR}" == "ubuntu-minimal" ] || [ "${FLAVOUR}" == "ubuntu-standard" ]; then
         echo "Skipping desktop install for ${FLAVOUR}"
-    elif [ "${FLAVOUR}" == "lubuntu" ] || [ "${FLAVOUR}" == "ubuntu-mate" ]; then
+    elif [ "${FLAVOUR}" == "lubuntu" ]; then
         install_meta ${FLAVOUR}-core --no-install-recommends
         install_meta ${FLAVOUR}-desktop --no-install-recommends
+    elif [ "${FLAVOUR}" == "ubuntu-mate" ]; then
+        # Install meta packages the "old" way for Xenial
+        if [ "${RELEASE}" == "xenial" ]; then
+            install_meta ${FLAVOUR}-core --no-install-recommends
+            install_meta ${FLAVOUR}-desktop --no-install-recommends
+        else
+            install_meta ${FLAVOUR}-core
+            install_meta ${FLAVOUR}-desktop
+        fi
     elif [ "${FLAVOUR}" == "xubuntu" ]; then
         install_meta ${FLAVOUR}-core
         install_meta ${FLAVOUR}-desktop
@@ -605,6 +655,7 @@ function stage_02_desktop() {
     prepare_oem_config
     configure_ssh
     configure_network
+    disable_services
     apt_upgrade
     apt_clean
     umount_system
@@ -629,7 +680,27 @@ function stage_04_corrections() {
     R=${DEVICE_R}
     mount_system
 
-    #Insert corrections here.
+    if [ "${RELEASE}" == "xenial" ]; then
+      # Add the MATE Desktop PPA for Xenial
+      if [ "${FLAVOUR}" == "ubuntu-mate" ]; then
+        chroot $R apt-add-repository -y ppa:ubuntu-mate-dev/xenial-mate
+        chroot $R apt-get update
+        chroot $R apt-get -y dist-upgrade
+      fi
+
+      # Upgrade Xorg using HWE.
+      chroot $R apt-get install -y --install-recommends \
+      xserver-xorg-core-hwe-16.04 \
+      xserver-xorg-input-all-hwe-16.04 \
+      xserver-xorg-input-evdev-hwe-16.04 \
+      xserver-xorg-input-synaptics-hwe-16.04 \
+      xserver-xorg-input-wacom-hwe-16.04 \
+      xserver-xorg-video-all-hwe-16.04 \
+      xserver-xorg-video-fbdev-hwe-16.04 \
+      xserver-xorg-video-vesa-hwe-16.04
+    fi
+
+    # Insert other corrections here.
 
     apt_clean
     clean_up
@@ -640,4 +711,5 @@ function stage_04_corrections() {
 stage_01_base
 stage_02_desktop
 stage_03_raspi2
-#stage_04_corrections
+stage_04_corrections
+#compress_image

@@ -16,41 +16,59 @@ Sadly COFI fails to build in a PPA :-(
 
   * http://archive.raspberrypi.org/debian/pool/main/r/raspi-copies-and-fills/
 
-These are for reference.
-
-  * https://twolife.be/raspbian/pool/main/bcm-videocore-pkgconfig/
-  * https://twolife.be/raspbian/pool/main/linux/
-
 ## Applications
 
 These are ported.
 
-  * https://archive.raspberrypi.org/debian/pool/main/m/minecraft-pi/
+  * http://archive.raspberrypi.org/debian/pool/main/m/minecraft-pi/
   * http://archive.raspberrypi.org/debian/pool/main/r/raspi-gpio/
   * http://archive.raspberrypi.org/debian/pool/main/s/sonic-pi/
   * http://archive.raspberrypi.org/debian/pool/main/p/picamera/
-  * http://archive.raspberrypi.org/debian/pool/main/n/nuscratch/ (Modify wrapper in debian/scratch to just be "sudo ")
+  * http://archive.raspberrypi.org/debian/pool/main/n/nuscratch/            (Modify wrapper in debian/scratch to just be "sudo ")
   * http://archive.raspberrypi.org/debian/pool/main/r/rtimulib/
   * http://archive.raspberrypi.org/debian/pool/main/r/raspi-config/
-  * http://archive.raspberrypi.org/debian/pool/main/r/rc-gui/
-  * http://archive.raspberrypi.org/debian/pool/main/r/rpi.gpio/ (Hardcode target Python 3.x version in debian/rules)
+  * http://archive.raspberrypi.org/debian/pool/main/r/rpi.gpio/             (debian/control Just python3 and python3-dev. debian/rules only python2.7 and python3.5)
   * http://archive.raspberrypi.org/debian/pool/main/s/spidev/
-  * http://archive.raspberrypi.org/debian/pool/main/c/codebug-tether/ (Hardcode target Python 3.x in debian/rules)
-  * http://archive.raspberrypi.org/debian/pool/main/c/codebug-i2c-tether/ (Hardcode target Python 3.x in debian/rules)
+  * http://archive.raspberrypi.org/debian/pool/main/c/codebug-i2c-tether/   (Hardcode target Python 3.x in debian/rules)
   * http://archive.raspberrypi.org/debian/pool/main/c/compoundpi/
-  * http://archive.raspberrypi.org/debian/pool/main/p/python-sense-hat/
+  * http://archive.raspberrypi.org/debian/pool/main/p/python-sense-hat/     (debian/control add B-D python-numpy, python3-numpy)
   * http://archive.raspberrypi.org/debian/pool/main/a/astropi/
-  * http://archive.raspberrypi.org/debian/pool/main/s/sense-hat/
+  * http://archive.raspberrypi.org/debian/pool/main/s/sense-hat/            (add python-numpy/pil/rtmulib to B-D)
+  * http://archive.raspberrypi.org/debian/pool/main/p/picraft/
+  * http://archive.raspberrypi.org/debian/pool/main/g/gpiozero/
+  * http://archive.raspberrypi.org/debian/pool/main/d/drumhat/
+  * http://archive.raspberrypi.org/debian/pool/main/e/envirohat/
+  * http://archive.raspberrypi.org/debian/pool/main/p/pianohat/
+  * http://archive.raspberrypi.org/debian/pool/main/p/pigpio/
+  * http://archive.raspberrypi.org/debian/pool/main/s/sense-emu/
+  * http://archive.raspberrypi.org/debian/pool/main/p/pantilthat/
+  * http://archive.raspberrypi.org/debian/pool/main/s/scrollphat/
+  * http://archive.raspberrypi.org/debian/pool/main/p/piglow/
+  * http://archive.raspberrypi.org/debian/pool/main/s/st7036/
+  * http://archive.raspberrypi.org/debian/pool/main/s/sn3218/
+  * http://archive.raspberrypi.org/debian/pool/main/m/microdotphat/         (Needed python-mock adding to B-D)    
+  * http://archive.raspberrypi.org/debian/pool/main/m/mote/
+  * http://archive.raspberrypi.org/debian/pool/main/m/motephat/
+  * http://archive.raspberrypi.org/debian/pool/main/e/explorerhat/
+
 
 These are pending.
 
+  * https://archive.raspberrypi.org/debian/pool/main/p/pgzero/pgzero_1.1-1.dsc (Requires python3-pygame)
+  * http://kusti8.github.io/RPi-chromium/
+  * http://repozytorium.mati75.eu/raspbian/pool/main/c/chromium-browser/
+  * http://repozytorium.mati75.eu/raspbian/pool/main/q/qt5ct/
+  * http://repozytorium.mati75.eu/raspbian/pool/main/f/ffmpeg/ffmpeg_3.2-2~bpo8%2B2.dsc
+  * https://twolife.be/raspbian/pool/main/ffmpeg/ffmpeg_3.2-2~bpo8+2+rpi1.dsc - Has Pi optimizations
   * http://archive.raspberrypi.org/debian/pool/main/p/pgzero/
   * https://archive.raspberrypi.org/debian/pool/main/e/epiphany-browser/
 
 These FTBFS.
 
+  * http://archive.raspberrypi.org/debian/pool/main/c/codebug-tether/ (Currently pip installed into the image)
   * http://archive.raspberrypi.org/debian/pool/main/g/gst-omx1.0/
-  * https://twolife.be/raspbian/pool/main/omxplayer/  
+  * http://repozytorium.mati75.eu/raspbian/pool/main/o/omxplayer/ (Currently wget into image)
+  * https://twolife.be/raspbian/pool/main/omxplayer/
 
 ## Kodi
 
