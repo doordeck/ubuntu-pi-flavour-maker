@@ -35,7 +35,7 @@ Vagrant.configure(2) do |config|
 
   $script = <<SCRIPT
     cd /vagrant && /vagrant/build-image.sh
-    rsync --progress `find /root/PiFlavourMaker/xenial/ -name \*.img` /vagrant/
+    sudo rsync --progress /root/PiFlavourMaker/xenial/ubuntu-minimal-16.04.2-server-armhf-raspberry-pi.img /vagrant/
 SCRIPT
 
   config.vm.provision "shell", privileged: true, inline: $script

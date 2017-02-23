@@ -680,7 +680,7 @@ function stage_04_corrections() {
     R=${DEVICE_R}
     mount_system
 
-    if [ "${RELEASE}" == "xenial" ]; then
+    if [ "${RELEASE}" == "xenial" && "${FLAVOUR}" != "ubuntu-minimal" ]; then
       # Add the MATE Desktop PPA for Xenial
       if [ "${FLAVOUR}" == "ubuntu-mate" ]; then
         chroot $R apt-add-repository -y ppa:ubuntu-mate-dev/xenial-mate
