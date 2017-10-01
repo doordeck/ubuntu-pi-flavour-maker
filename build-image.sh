@@ -57,6 +57,7 @@ function sync_to() {
 # Base debootstrap
 function bootstrap() {
     # Required tools
+    apt-get update
     apt-get -y install binfmt-support debootstrap f2fs-tools \
     qemu-user-static rsync ubuntu-keyring whois
 
@@ -208,8 +209,6 @@ function configure_ssh() {
     cp files/sshdgenkeys.service $R/lib/systemd/system/
     mkdir -p $R/etc/systemd/system/ssh.service.wants
     chroot $R /bin/systemctl enable sshdgenkeys.service
-    chroot $R /bin/systemctl disable ssh.service
-    chroot $R /bin/systemctl disable sshguard.service
 }
 
 function configure_network() {
@@ -533,7 +532,7 @@ function make_raspi2_image() {
 
     # Create an empty file file.
     dd if=/dev/zero of="${BASEDIR}/${IMAGE}" bs=1MB count=1
-    dd if=/dev/zero of="${BASEDIR}/${IMAGE}" bs=1MB count=0 seek=$(( ${SIZE_IMG} * 1000 ))
+    dd if=/dev/zero of="${BASEDIR}/${IMAGE}" bs=1MB count=0 seek=$(( ${SIZE_IMG} ))
 
     # Initialising: msdos
     parted -s ${BASEDIR}/${IMAGE} mktable msdos
