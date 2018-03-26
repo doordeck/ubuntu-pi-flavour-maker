@@ -29,7 +29,7 @@ QUALITY=""
 FS_TYPE="ext4"
 
 # Target image size, will be represented in MB
-FS_SIZE=4000
+FS_SIZE=3728
 
 # Either 0 or 1.
 # - 0 don't make generic rootfs tarball

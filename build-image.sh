@@ -110,7 +110,7 @@ function apt_clean() {
 # Install Ubuntu minimal
 function ubuntu_minimal() {
     if [ ! -f "${R}/tmp/.minimal" ]; then
-        chroot $R apt-get -y install ubuntu-minimal parted software-properties-common python-minimal
+        chroot $R apt-get -y install ubuntu-minimal parted software-properties-common python-minimal dmidecode
         if [ "${FS}" == "f2fs" ]; then
             chroot $R apt-get -y install f2fs-tools
         fi
